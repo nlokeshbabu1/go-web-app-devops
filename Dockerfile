@@ -1,38 +1,29 @@
-# Containerize the go application that we have created
-# This is the Dockerfile that we will use to build the image
-# and run the container
+FROM node:18.17.0-alpine3.18
 
-# Start with a base image
-FROM golang:1.21 as base
-
-# Set the working directory inside the container
 WORKDIR /app
 
-# Copy the go.mod and go.sum files to the working directory
-COPY go.mod ./
+# Copy package files first for better layer caching
+COPY package*.json ./
 
-# Download all the dependencies
-RUN go mod download
+# Install production dependencies only
+RUN npm ci --only=production
 
-# Copy the source code to the working directory
+# Copy application code
 COPY . .
 
-# Build the application
-RUN go build -o main .
+# Create non-root user and group
+RUN addgroup --gid 1000 -S appgroup && \
+    adduser --uid 1000 --gid appgroup --shell /bin/bash --create-home appuser
 
-#######################################################
-# Reduce the image size using multi-stage builds
-# We will use a distroless image to run the application
-FROM gcr.io/distroless/base
+# Set proper ownership
+RUN chown -R appuser:appgroup /app
 
-# Copy the binary from the previous stage
-COPY --from=base /app/main .
+# Switch to non-root user
+USER appuser
 
-# Copy the static files from the previous stage
-COPY --from=base /app/static ./static
+# Add healthcheck
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:${PORT:-3000}/health || exit 1
 
-# Expose the port on which the application will run
-EXPOSE 8080
-
-# Command to run the application
-CMD ["./main"]
+EXPOSE 3000
+CMD ["node", "server.js"]
