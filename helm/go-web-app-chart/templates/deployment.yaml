@@ -1,22 +1,121 @@
-# This is a sample deployment manifest file for a simple web application.
-apiVersion: apps/v1
-kind: Deployment
+# Namespace with NetworkPolicy support
+apiVersion: v1
+kind: Namespace
 metadata:
-  name: go-web-app
+  name: production
   labels:
-    app: go-web-app
+    name: production
+
+# Default deny all ingress traffic in namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: production
 spec:
-  replicas: 1
-  selector:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+
+# Default deny all egress traffic in namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-egress
+  namespace: production
+spec:
+  podSelector: {}
+  policyTypes:
+  - Egress
+
+# Allow ingress from ingress controller to frontend pods
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-frontend-ingress
+  namespace: production
+spec:
+  podSelector:
     matchLabels:
-      app: go-web-app
-  template:
-    metadata:
-      labels:
-        app: go-web-app
-    spec:
-      containers:
-      - name: go-web-app
-        image: nlokeshbabu1/go-web-app:{{ .Values.image.tag }}
-        ports:
-        - containerPort: 8080
+      app: frontend
+      tier: web
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx
+    - podSelector:
+        matchLabels:
+          app: backend
+          tier: api
+    ports:
+    - protocol: TCP
+      port: 3000
+
+# Allow frontend to communicate with backend
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-frontend-to-backend
+  namespace: production
+spec:
+  podSelector:
+    matchLabels:
+      app: frontend
+      tier: web
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: backend
+          tier: api
+    ports:
+    - protocol: TCP
+      port: 8080
+
+# Allow backend to communicate with database
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backend-to-db
+  namespace: production
+spec:
+  podSelector:
+    matchLabels:
+      app: backend
+      tier: api
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: database
+          tier: data
+    ports:
+    - protocol: TCP
+      port: 5432
+
+# Allow DNS resolution for all pods
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: production
+spec:
+  podSelector: {}
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - namespaceSelector: {}
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - protocol: UDP
+      port: 53
